@@ -26,3 +26,6 @@ const Modulo = sequelize.define('Modulo', {
 });
 
 module.exports = Modulo;
+
+
+//PRIVILEGIOS

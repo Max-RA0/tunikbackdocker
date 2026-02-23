@@ -1,35 +1,79 @@
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const { User, Role } = require('../models');
-const { jwt: jwtConfig, bcrypt: bcryptConfig } = require('../config/security');
+// services/auth.service.js
+// KEYWORDS: AUTH_SERVICE / LOGIN / REGISTER / ACL / ROLEPERMISO / SAFE
+
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const { User, Role, RolePermiso, Modulo, Accion } = require("../models");
+const { jwt: jwtConfig, bcrypt: bcryptConfig } = require("../config/security");
 
 class AuthService {
-  async register(userData) {
-    const { numero_documento, tipo_documento, nombre, telefono, email, contrasena, idroles } = userData;
+  //  KEYWORDS: ACL / BUILD / ROLEPERMISO
+  async getAclByRoleId(idroles) {
+    const roleId = Number(idroles);
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      where: { email } 
+    //  admin => acceso total
+    if (roleId === 1) return { __admin: true };
+
+    //  trae módulos+acciones permitidas para el rol
+    const rows = await RolePermiso.findAll({
+      where: { idroles: roleId, permitido: 1 },
+      include: [
+        { model: Modulo, as: "modulo", attributes: ["codigo"] },
+        { model: Accion, as: "accion", attributes: ["codigo"] },
+      ],
     });
-    
+
+    //  ACL shape para PermissionGate:
+    // { "metodospago": { "read": true, "create": true } }
+    const acl = {};
+
+    for (const rp of rows) {
+      const modulo = rp?.modulo?.codigo;
+      const accion = rp?.accion?.codigo;
+
+      if (!modulo || !accion) continue;
+
+      const modKey = String(modulo).trim().toLowerCase();
+      const actKey = String(accion).trim().toLowerCase();
+
+      if (!acl[modKey]) acl[modKey] = {};
+      acl[modKey][actKey] = true;
+    }
+
+    return acl;
+  }
+
+  async register(userData) {
+    const {
+      numero_documento,
+      tipo_documento,
+      nombre,
+      telefono,
+      email,
+      contrasena,
+      idroles,
+    } = userData;
+
+    const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
-      const error = new Error('El email ya está registrado');
+      const error = new Error("El email ya está registrado");
       error.statusCode = 409;
       throw error;
     }
 
     const existingDoc = await User.findByPk(numero_documento);
     if (existingDoc) {
-      const error = new Error('El número de documento ya está registrado');
+      const error = new Error("El número de documento ya está registrado");
       error.statusCode = 409;
       throw error;
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(contrasena, bcryptConfig.saltRounds);
+    const hashedPassword = await bcrypt.hash(
+      contrasena,
+      bcryptConfig.saltRounds
+    );
 
-    // Create user
     const user = await User.create({
       numero_documento,
       tipo_documento,
@@ -37,59 +81,57 @@ class AuthService {
       telefono,
       email,
       contrasena: hashedPassword,
-      idroles: idroles || 2 // Default role
+      idroles: idroles || 2,
     });
 
-    // Get role info
     const role = await Role.findByPk(user.idroles);
 
     return {
       numero_documento: user.numero_documento,
       nombre: user.nombre,
       email: user.email,
-      rol: role ? role.nombrerol : null
+      rol: role ? role.nombrerol : null,
     };
   }
 
   async login(email, contrasena) {
-    // Find user with role
-    const user = await User.findOne({
-      where: { email }
-    });
+    // KEYWORDS: normalize input
+    const e = String(email || "").trim();
+    const p = String(contrasena || "").trim();
+
+    const user = await User.findOne({ where: { email: e } });
 
     if (!user) {
-      const error = new Error('Credenciales inválidas');
+      const error = new Error("Credenciales inválidas");
       error.statusCode = 401;
       throw error;
     }
 
-    // Verify password
-    const isValidPassword = await bcrypt.compare(contrasena, user.contrasena);
+    const isValidPassword = await bcrypt.compare(p, user.contrasena);
     if (!isValidPassword) {
-      const error = new Error('Credenciales inválidas');
+      const error = new Error("Credenciales inválidas");
       error.statusCode = 401;
       throw error;
     }
 
-    // Generate tokens
-    // Get role info separately
     let role = null;
     try {
       role = await Role.findByPk(user.idroles);
     } catch (error) {
-      console.log('Error fetching role:', error.message);
+      console.log("Error fetching role:", error.message);
     }
 
+    // ✅ KEYWORDS: TOKEN_PAYLOAD
     const tokenPayload = {
       numero_documento: user.numero_documento,
       email: user.email,
       nombre: user.nombre,
       idroles: user.idroles,
-      nombrerol: role ? role.descripcion : null
+      nombrerol: role ? role.descripcion : null,
     };
 
     const accessToken = jwt.sign(tokenPayload, jwtConfig.accessSecret, {
-      expiresIn: jwtConfig.accessTTL
+      expiresIn: jwtConfig.accessTTL,
     });
 
     const refreshToken = jwt.sign(
@@ -97,6 +139,9 @@ class AuthService {
       jwtConfig.refreshSecret,
       { expiresIn: jwtConfig.refreshTTL }
     );
+
+    // ✅ KEYWORDS: ACL in login response
+    const acl = await this.getAclByRoleId(user.idroles);
 
     return {
       accessToken,
@@ -109,24 +154,23 @@ class AuthService {
         telefono: user.telefono,
         tipo_documento: user.tipo_documento,
         idroles: user.idroles,
-        rol: role ? role.descripcion : null
-      }
+        rol: role ? role.descripcion : null,
+      },
+      acl,
     };
   }
 
   async refreshToken(refreshToken) {
     try {
       const decoded = jwt.verify(refreshToken, jwtConfig.refreshSecret);
-      
+
       const user = await User.findByPk(decoded.numero_documento);
-      
       if (!user) {
-        const error = new Error('Usuario no encontrado');
+        const error = new Error("Usuario no encontrado");
         error.statusCode = 401;
         throw error;
       }
 
-      // Get role info separately
       const role = await Role.findByPk(user.idroles);
 
       const tokenPayload = {
@@ -134,11 +178,11 @@ class AuthService {
         email: user.email,
         nombre: user.nombre,
         idroles: user.idroles,
-        nombrerol: role ? role.descripcion : null
+        nombrerol: role ? role.descripcion : null,
       };
 
       const newAccessToken = jwt.sign(tokenPayload, jwtConfig.accessSecret, {
-        expiresIn: jwtConfig.accessTTL
+        expiresIn: jwtConfig.accessTTL,
       });
 
       const newRefreshToken = jwt.sign(
@@ -150,10 +194,10 @@ class AuthService {
       return {
         accessToken: newAccessToken,
         refreshToken: newRefreshToken,
-        expiresIn: jwtConfig.accessTTL
+        expiresIn: jwtConfig.accessTTL,
       };
     } catch (error) {
-      const err = new Error('Token de refresh inválido');
+      const err = new Error("Token de refresh inválido");
       err.statusCode = 401;
       throw err;
     }
@@ -161,57 +205,56 @@ class AuthService {
 
   async forgotPassword(email) {
     const user = await User.findOne({ where: { email } });
-    
+
     if (!user) {
-      // Don't reveal if user exists
-      return { message: 'Si el email existe, recibirás instrucciones para restablecer tu contraseña' };
+      return {
+        message:
+          "Si el email existe, recibirás instrucciones para restablecer tu contraseña",
+      };
     }
 
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const tokenExpires = new Date(Date.now() + 3600000); // 1 hour
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenExpires = new Date(Date.now() + 3600000);
 
     await user.update({
       reset_token: resetToken,
-      token_expires: tokenExpires
+      token_expires: tokenExpires,
     });
 
-    // In production, send email here
-    return { 
-      message: 'Si el email existe, recibirás instrucciones para restablecer tu contraseña',
-      // Only for development:
-      resetToken: process.env.NODE_ENV === 'development' ? resetToken : undefined
+    return {
+      message:
+        "Si el email existe, recibirás instrucciones para restablecer tu contraseña",
+      resetToken: process.env.NODE_ENV === "development" ? resetToken : undefined,
     };
   }
 
   async resetPassword(token, newPassword) {
-    const user = await User.findOne({
-      where: {
-        reset_token: token
-      }
-    });
+    const user = await User.findOne({ where: { reset_token: token } });
 
     if (!user) {
-      const error = new Error('Token inválido o expirado');
+      const error = new Error("Token inválido o expirado");
       error.statusCode = 400;
       throw error;
     }
 
     if (user.token_expires && new Date(user.token_expires) < new Date()) {
-      const error = new Error('Token expirado');
+      const error = new Error("Token expirado");
       error.statusCode = 400;
       throw error;
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, bcryptConfig.saltRounds);
+    const hashedPassword = await bcrypt.hash(
+      newPassword,
+      bcryptConfig.saltRounds
+    );
 
     await user.update({
       contrasena: hashedPassword,
       reset_token: null,
-      token_expires: null
+      token_expires: null,
     });
 
-    return { message: 'Contraseña actualizada exitosamente' };
+    return { message: "Contraseña actualizada exitosamente" };
   }
 }
 
