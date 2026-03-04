@@ -67,6 +67,9 @@ const requirePermission = (permissionCode) => {
       return response.unauthorized(res, 'No autenticado');
     }
 
+    // Bypass permission check for admin (idroles = 1)
+    if (Number(String(req.user?.idroles ?? "").trim()) === 1) return next();
+
     try {
       // permissionCode format: "modulo.accion" (e.g., "roles.read", "usuarios.create")
       const [moduloCodigo, accionCodigo] = permissionCode.split('.');

@@ -1,6 +1,6 @@
 const { Venta, AgendaCita, Vehiculo, User, Servicio, EvaluacionServicio, Producto, Pedido } = require('../models');
 const { Op } = require('sequelize');
-const { sequelize } = require('../database/connection');
+const { sequelize } = require('../models');
 
 class DashboardService {
   async getStats() {
@@ -54,7 +54,7 @@ class DashboardService {
     // Productos con bajo stock (menos de 5)
     const productosBajoStock = await Producto.count({
       where: {
-        stock: { [Op.lt]: 5 }
+        cantidadexistente: { [Op.lt]: 5 }
       }
     });
 

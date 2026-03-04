@@ -90,6 +90,16 @@ class InventoryController {
     }
   }
 
+  async findPedidoById(req, res, next) {
+    try {
+      const { idpedidos } = req.params;
+      const pedido = await inventoryService.findPedidoById(idpedidos);
+      return response.success(res, pedido);
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createPedido(req, res, next) {
     try {
       const pedido = await inventoryService.createPedido(req.body);
@@ -114,6 +124,55 @@ class InventoryController {
       const { idpedidos } = req.params;
       await inventoryService.deletePedido(idpedidos);
       return response.success(res, null, 'Pedido eliminado exitosamente');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // Detalles
+  async findAllDetallesPedido(req, res, next) {
+    try {
+      const detalles = await inventoryService.findAllDetallesPedido();
+      return response.success(res, detalles);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async findDetallesByPedido(req, res, next) {
+    try {
+      const { idpedidos } = req.params;
+      const detalles = await inventoryService.findDetallesByPedido(idpedidos);
+      return response.success(res, detalles);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createDetallePedido(req, res, next) {
+    try {
+      const detalle = await inventoryService.createDetallePedido(req.body);
+      return response.created(res, detalle, 'Detalle de pedido creado exitosamente');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateDetallePedido(req, res, next) {
+    try {
+      const { idpedido, idproducto } = req.params;
+      const detalle = await inventoryService.updateDetallePedido(idpedido, idproducto, req.body);
+      return response.success(res, detalle, 'Detalle de pedido actualizado exitosamente');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteDetallePedido(req, res, next) {
+    try {
+      const { idpedido, idproducto } = req.params;
+      await inventoryService.deleteDetallePedido(idpedido, idproducto);
+      return response.success(res, null, 'Detalle de pedido eliminado exitosamente');
     } catch (error) {
       next(error);
     }

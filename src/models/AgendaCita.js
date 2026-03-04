@@ -9,7 +9,8 @@ const AgendaCita = sequelize.define('AgendaCita', {
   },
   placa: {
     type: DataTypes.STRING(10),
-    allowNull: false,
+    allowNull: true,
+    defaultValue: null,
     references: {
       model: 'vehiculos',
       key: 'placa'
@@ -21,7 +22,7 @@ const AgendaCita = sequelize.define('AgendaCita', {
   },
   estado: {
     type: DataTypes.STRING(50),
-    allowNull: false,
+    allowNull: true,
     defaultValue: 'Pendiente'
   }
 }, {

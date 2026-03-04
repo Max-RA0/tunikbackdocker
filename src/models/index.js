@@ -19,6 +19,7 @@ const PagoVenta = require('./PagoVenta');
 const Producto = require('./Producto');
 const Proveedor = require('./Proveedor');
 const Pedido = require('./Pedido');
+const DetallePedidoProducto = require('./DetallePedidoProducto');
 const EvaluacionServicio = require('./EvaluacionServicio');
 const Permiso = require('./Permiso');
 const RolePermiso = require('./RolePermiso');
@@ -103,6 +104,14 @@ Proveedor.hasMany(Pedido, { foreignKey: 'idproveedor', as: 'pedidos' });
 Pedido.belongsTo(User, { foreignKey: 'numero_documento', as: 'usuario' });
 User.hasMany(Pedido, { foreignKey: 'numero_documento', as: 'pedidos' });
 
+// Pedido - DetallePedidoProducto
+DetallePedidoProducto.belongsTo(Pedido, { foreignKey: 'idpedido', as: 'pedido' });
+Pedido.hasMany(DetallePedidoProducto, { foreignKey: 'idpedido', as: 'detalles' });
+
+// DetallePedidoProducto - Producto
+DetallePedidoProducto.belongsTo(Producto, { foreignKey: 'idproducto', as: 'producto' });
+Producto.hasMany(DetallePedidoProducto, { foreignKey: 'idproducto', as: 'detallesPedido' });
+
 // Producto - Proveedor
 Producto.belongsTo(Proveedor, { foreignKey: 'idproveedor', as: 'proveedor' });
 Proveedor.hasMany(Producto, { foreignKey: 'idproveedor', as: 'productos' });
@@ -147,6 +156,7 @@ module.exports = {
   Producto,
   Proveedor,
   Pedido,
+  DetallePedidoProducto,
   EvaluacionServicio,
   Permiso,
   RolePermiso,

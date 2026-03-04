@@ -1,8 +1,11 @@
-const express = require('express');
-const { body } = require('express-validator');
-const appointmentsController = require('../controllers/appointments.controller');
-const { verifyToken } = require('../middleware/auth.middleware');
-const { validate } = require('../middleware/validation.middleware');
+// src/routes/appointments.routes.js
+// KEYWORDS: AGENDA_ROUTES / MULTI_VEHICLES / DETALLES_INLINE / PLACA_OPTIONAL_HEADER
+
+const express = require("express");
+const { body } = require("express-validator");
+const appointmentsController = require("../controllers/appointments.controller");
+const { verifyToken } = require("../middleware/auth.middleware");
+const { validate } = require("../middleware/validation.middleware");
 
 const router = express.Router();
 
@@ -11,49 +14,106 @@ router.use(verifyToken);
 
 // ========== AGENDA DE CITAS ==========
 // GET /api/agendacitas
-router.get('/agendacitas', appointmentsController.findAll);
+router.get("/agendacitas", appointmentsController.findAll);
 
 // GET /api/agendacitas/:idagendacitas
-router.get('/agendacitas/:idagendacitas', appointmentsController.findById);
+router.get("/agendacitas/:idagendacitas", appointmentsController.findById);
 
 // POST /api/agendacitas
-router.post('/agendacitas', [
-  body('placa').notEmpty().withMessage('Placa es requerida'),
-  body('fecha').notEmpty().withMessage('Fecha es requerida'),
-  validate
-], appointmentsController.create);
+// Soporta 2 modos:
+// 1) Cabecera clásica (legacy): { placa, fecha, estado? }
+// 2) Multi-vehículos (nuevo): { fecha, estado?, detalles:[{placa,idservicios,precio_unitario,cantidad?,descripcionvehiculo?}, ...] }
+//
+// NOTA: placa en cabecera ya NO es requerida si mandas "detalles".
+router.post(
+  "/agendacitas",
+  [
+    // KEYWORDS: FECHA_REQUIRED
+    body("fecha").notEmpty().withMessage("Fecha es requerida"),
+
+    // KEYWORDS: MODE_SWITCH (detalles optional)
+    body("detalles")
+      .optional()
+      .isArray({ min: 1 })
+      .withMessage("detalles debe ser un arreglo con mínimo 1 item"),
+
+    // KEYWORDS: DETALLES_VALIDATION
+    body("detalles.*.placa")
+      .optional()
+      .notEmpty()
+      .withMessage("Cada detalle debe tener placa"),
+    body("detalles.*.idservicios")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("Cada detalle debe tener idservicios válido"),
+    body("detalles.*.precio_unitario")
+      .optional()
+      .isDecimal()
+      .withMessage("Cada detalle debe tener precio_unitario válido"),
+    body("detalles.*.cantidad")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("cantidad debe ser >= 1"),
+
+    // KEYWORDS: LEGACY_FALLBACK (si NO hay detalles, exige placa)
+    body("placa")
+      .custom((value, { req }) => {
+        const hasDetalles = Array.isArray(req.body?.detalles) && req.body.detalles.length > 0;
+        if (hasDetalles) return true; // modo nuevo: placa en cabecera no requerida
+        if (typeof value === "string" && value.trim().length > 0) return true; // modo legacy
+        throw new Error("Placa es requerida");
+      }),
+
+    validate,
+  ],
+  appointmentsController.create
+);
 
 // PUT /api/agendacitas/:idagendacitas
-router.put('/agendacitas/:idagendacitas', appointmentsController.update);
+router.put("/agendacitas/:idagendacitas", appointmentsController.update);
 
 // DELETE /api/agendacitas/:idagendacitas
-router.delete('/agendacitas/:idagendacitas', appointmentsController.delete);
+router.delete("/agendacitas/:idagendacitas", appointmentsController.delete);
 
 // ========== DETALLES DE AGENDA ==========
 // GET /api/detalleagendacitas
-router.get('/detalleagendacitas', appointmentsController.findAllDetalles);
+router.get("/detalleagendacitas", appointmentsController.findAllDetalles);
 
 // GET /api/detalleagendacitas/test
-router.get('/detalleagendacitas/test', appointmentsController.testDetalles);
+router.get("/detalleagendacitas/test", appointmentsController.testDetalles);
 
 // GET /api/detalleagendacitas/agenda/:idagendacitas
-router.get('/detalleagendacitas/agenda/:idagendacitas', appointmentsController.findDetallesByAgenda);
+router.get("/detalleagendacitas/agenda/:idagendacitas", appointmentsController.findDetallesByAgenda);
 
 // GET /api/detalleagendacitas/agenda/:idagendacitas/total
-router.get('/detalleagendacitas/agenda/:idagendacitas/total', appointmentsController.getTotalByAgenda);
+router.get("/detalleagendacitas/agenda/:idagendacitas/total", appointmentsController.getTotalByAgenda);
 
 // POST /api/detalleagendacitas
-router.post('/detalleagendacitas', [
-  body('idagendacitas').isInt().withMessage('ID de agenda es requerido'),
-  body('idservicios').isInt().withMessage('ID de servicio es requerido'),
-  body('precio_unitario').isDecimal().withMessage('Precio unitario es requerido'),
-  validate
-], appointmentsController.createDetalle);
+router.post(
+  "/detalleagendacitas",
+  [
+    body("idagendacitas").isInt().withMessage("ID de agenda es requerido"),
+    body("idservicios").isInt().withMessage("ID de servicio es requerido"),
+    body("precio_unitario").isDecimal().withMessage("Precio unitario es requerido"),
+    // KEYWORDS: OPTIONAL_FIELDS
+    body("cantidad").optional().isInt({ min: 1 }).withMessage("cantidad debe ser >= 1"),
+    body("placa").optional().isString(),
+    body("descripcionvehiculo").optional().isString(),
+    validate,
+  ],
+  appointmentsController.createDetalle
+);
 
 // PUT /api/detalleagendacitas/agenda/:idagendacitas/servicio/:idservicios
-router.put('/detalleagendacitas/agenda/:idagendacitas/servicio/:idservicios', appointmentsController.updateDetalle);
+router.put(
+  "/detalleagendacitas/agenda/:idagendacitas/servicio/:idservicios",
+  appointmentsController.updateDetalle
+);
 
 // DELETE /api/detalleagendacitas/agenda/:idagendacitas/servicio/:idservicios
-router.delete('/detalleagendacitas/agenda/:idagendacitas/servicio/:idservicios', appointmentsController.deleteDetalle);
+router.delete(
+  "/detalleagendacitas/agenda/:idagendacitas/servicio/:idservicios",
+  appointmentsController.deleteDetalle
+);
 
 module.exports = router;

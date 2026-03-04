@@ -1,6 +1,9 @@
-const { Venta, DetalleVenta, PagoVenta, MetodoPago, Servicio } = require('../models');
-const { Op } = require('sequelize');
-const { sequelize } = require('../database/connection');
+// src/services/sales.service.js
+// KEYWORDS: SALES_SERVICE / MULTI_VEHICLES / DETALLES_WITH_PLACA / TRANSACTION / TOTAL_CALC
+
+const { Venta, DetalleVenta, PagoVenta, MetodoPago, Servicio } = require("../models");
+const { Op } = require("sequelize");
+const { sequelize } = require("../database/connection");
 
 class SalesService {
   // Ventas
@@ -8,86 +11,73 @@ class SalesService {
     const { estado, from, to } = query;
     const where = {};
 
-    if (estado) {
-      where.estado = estado;
-    }
+    if (estado) where.estado = estado;
 
     if (from && to) {
-      where.fecha = {
-        [Op.between]: [new Date(from), new Date(to)]
-      };
+      where.fecha = { [Op.between]: [new Date(from), new Date(to)] };
     }
 
     return await Venta.findAll({
       where,
       include: [
-        {
-          model: DetalleVenta,
-          as: 'detalles',
-          include: [{ model: Servicio, as: 'servicio' }]
-        },
-        {
-          model: PagoVenta,
-          as: 'pagos',
-          include: [{ model: MetodoPago, as: 'metodoPago' }]
-        }
+        { model: DetalleVenta, as: "detalles", include: [{ model: Servicio, as: "servicio" }] },
+        { model: PagoVenta, as: "pagos", include: [{ model: MetodoPago, as: "metodoPago" }] },
       ],
-      order: [['fecha', 'DESC']]
+      order: [["fecha", "DESC"]],
     });
   }
 
   async findById(idventas) {
     const venta = await Venta.findByPk(idventas, {
       include: [
-        {
-          model: DetalleVenta,
-          as: 'detalles',
-          include: [{ model: Servicio, as: 'servicio' }]
-        },
-        {
-          model: PagoVenta,
-          as: 'pagos',
-          include: [{ model: MetodoPago, as: 'metodoPago' }]
-        }
-      ]
+        { model: DetalleVenta, as: "detalles", include: [{ model: Servicio, as: "servicio" }] },
+        { model: PagoVenta, as: "pagos", include: [{ model: MetodoPago, as: "metodoPago" }] },
+      ],
     });
 
     if (!venta) {
-      const error = new Error('Venta no encontrada');
+      const error = new Error("Venta no encontrada");
       error.statusCode = 404;
       throw error;
     }
-
     return venta;
   }
 
   async create(data) {
-    const { origen, idorigen, fecha, estado, total, detalles } = data;
+    const { origen, fecha, estado, total, detalles } = data;
 
     const transaction = await sequelize.transaction();
 
     try {
-      const venta = await Venta.create({
-        origen,
-        idorigen,
-        fecha: fecha || new Date(),
-        estado: estado || 'pendiente',
-        total: total || 0
-      }, { transaction });
+      const venta = await Venta.create(
+        {
+          origen,
+          fecha: fecha || new Date(),
+          estado: estado || "pendiente",
+          total: total || 0,
+        },
+        { transaction }
+      );
 
-      if (detalles && detalles.length > 0) {
-        const detallesData = detalles.map(d => ({
+      if (Array.isArray(detalles) && detalles.length > 0) {
+        // KEYWORDS: MAP_DETALLES_WITH_PLACA
+        const detallesData = detalles.map((d) => ({
           idventas: venta.idventas,
           idservicios: d.idservicios,
           cantidad: d.cantidad || 1,
-          precio_unitario: d.precio_unitario
+          precio_unitario: d.precio_unitario,
+
+          // ✅ NUEVO: multi-vehículos
+          placa: d.placa || null,
+          descripcionvehiculo: d.descripcionvehiculo || null,
         }));
 
         await DetalleVenta.bulkCreate(detallesData, { transaction });
 
-        // Calculate total
+        // KEYWORDS: TOTAL_CALC
         const calculatedTotal = detalles.reduce((sum, d) => {
-          return sum + (parseFloat(d.precio_unitario) * (d.cantidad || 1));
+          const qty = d.cantidad || 1;
+          return sum + parseFloat(d.precio_unitario) * qty;
         }, 0);
 
         await venta.update({ total: calculatedTotal }, { transaction });
@@ -104,11 +94,10 @@ class SalesService {
   async update(idventas, data) {
     const venta = await Venta.findByPk(idventas);
     if (!venta) {
-      const error = new Error('Venta no encontrada');
+      const error = new Error("Venta no encontrada");
       error.statusCode = 404;
       throw error;
     }
-
     await venta.update(data);
     return await this.findById(idventas);
   }
@@ -116,48 +105,47 @@ class SalesService {
   async delete(idventas) {
     const venta = await Venta.findByPk(idventas);
     if (!venta) {
-      const error = new Error('Venta no encontrada');
+      const error = new Error("Venta no encontrada");
       error.statusCode = 404;
       throw error;
     }
     await venta.destroy();
-    return { message: 'Venta eliminada exitosamente' };
+    return { message: "Venta eliminada exitosamente" };
   }
 
   // Detalles de venta
   async findAllDetalles() {
     return await DetalleVenta.findAll({
       include: [
-        { model: Venta, as: 'venta' },
-        { model: Servicio, as: 'servicio' }
-      ]
+        { model: Venta, as: "venta" },
+        { model: Servicio, as: "servicio" },
+      ],
     });
   }
 
   async findDetallesByVenta(idventas) {
     return await DetalleVenta.findAll({
       where: { idventas },
-      include: [{ model: Servicio, as: 'servicio' }]
+      include: [{ model: Servicio, as: "servicio" }],
     });
   }
 
   async createDetalle(data) {
     const detalle = await DetalleVenta.create(data);
 
-    // Update venta total
     const detalles = await DetalleVenta.findAll({ where: { idventas: data.idventas } });
-    const total = detalles.reduce((sum, d) => sum + (parseFloat(d.precio_unitario) * d.cantidad), 0);
+    const total = detalles.reduce((sum, d) => sum + parseFloat(d.precio_unitario) * d.cantidad, 0);
     await Venta.update({ total }, { where: { idventas: data.idventas } });
 
     return await DetalleVenta.findByPk(detalle.iddetalleventas, {
-      include: [{ model: Servicio, as: 'servicio' }]
+      include: [{ model: Servicio, as: "servicio" }],
     });
   }
 
   async deleteDetalle(iddetalleventas) {
     const detalle = await DetalleVenta.findByPk(iddetalleventas);
     if (!detalle) {
-      const error = new Error('Detalle no encontrado');
+      const error = new Error("Detalle no encontrado");
       error.statusCode = 404;
       throw error;
     }
@@ -165,49 +153,46 @@ class SalesService {
     const idventas = detalle.idventas;
     await detalle.destroy();
 
-    // Update venta total
     const detalles = await DetalleVenta.findAll({ where: { idventas } });
-    const total = detalles.reduce((sum, d) => sum + (parseFloat(d.precio_unitario) * d.cantidad), 0);
+    const total = detalles.reduce((sum, d) => sum + parseFloat(d.precio_unitario) * d.cantidad, 0);
     await Venta.update({ total }, { where: { idventas } });
 
-    return { message: 'Detalle eliminado exitosamente' };
+    return { message: "Detalle eliminado exitosamente" };
   }
 
-  // Pagos de venta
+  // Pagos de venta (igual)
   async findAllPagos() {
     return await PagoVenta.findAll({
       include: [
-        { model: Venta, as: 'venta' },
-        { model: MetodoPago, as: 'metodoPago' }
-      ]
+        { model: Venta, as: "venta" },
+        { model: MetodoPago, as: "metodoPago" },
+      ],
     });
   }
 
   async findPagosByVenta(idventas) {
     return await PagoVenta.findAll({
       where: { idventas },
-      include: [{ model: MetodoPago, as: 'metodoPago' }]
+      include: [{ model: MetodoPago, as: "metodoPago" }],
     });
   }
 
   async createPago(data) {
     const { idventas, idmpago, valor, comprobante } = data;
 
-    // Verify venta exists
     const venta = await Venta.findByPk(idventas);
     if (!venta) {
-      const error = new Error('Venta no encontrada');
+      const error = new Error("Venta no encontrada");
       error.statusCode = 404;
       throw error;
     }
 
-    // Check if payment exceeds balance
     const pagosExistentes = await PagoVenta.findAll({ where: { idventas } });
     const totalPagado = pagosExistentes.reduce((sum, p) => sum + parseFloat(p.valor), 0);
     const saldoPendiente = parseFloat(venta.total) - totalPagado;
 
     if (parseFloat(valor) > saldoPendiente) {
-      const error = new Error('El pago excede el saldo pendiente');
+      const error = new Error("El pago excede el saldo pendiente");
       error.statusCode = 409;
       throw error;
     }
@@ -217,24 +202,23 @@ class SalesService {
       idmpago,
       valor,
       fecha: new Date(),
-      comprobante
+      comprobante,
     });
 
-    // Update venta status if fully paid
     const nuevoTotalPagado = totalPagado + parseFloat(valor);
     if (nuevoTotalPagado >= parseFloat(venta.total)) {
-      await venta.update({ estado: 'pagada' });
+      await venta.update({ estado: "pagada" });
     }
 
     return await PagoVenta.findByPk(pago.idpagoventas, {
-      include: [{ model: MetodoPago, as: 'metodoPago' }]
+      include: [{ model: MetodoPago, as: "metodoPago" }],
     });
   }
 
   async deletePago(idpagoventas) {
     const pago = await PagoVenta.findByPk(idpagoventas);
     if (!pago) {
-      const error = new Error('Pago no encontrado');
+      const error = new Error("Pago no encontrado");
       error.statusCode = 404;
       throw error;
     }
@@ -242,16 +226,15 @@ class SalesService {
     const idventas = pago.idventas;
     await pago.destroy();
 
-    // Update venta status
     const venta = await Venta.findByPk(idventas);
     const pagosRestantes = await PagoVenta.findAll({ where: { idventas } });
     const totalPagado = pagosRestantes.reduce((sum, p) => sum + parseFloat(p.valor), 0);
 
     if (totalPagado < parseFloat(venta.total)) {
-      await venta.update({ estado: 'pendiente' });
+      await venta.update({ estado: "pendiente" });
     }
 
-    return { message: 'Pago eliminado exitosamente' };
+    return { message: "Pago eliminado exitosamente" };
   }
 }
 

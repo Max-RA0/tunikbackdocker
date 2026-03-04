@@ -21,6 +21,3 @@ const Accion = sequelize.define('Accion', {
 });
 
 module.exports = Accion;
-
-
-//PERMISOS

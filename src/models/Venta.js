@@ -9,11 +9,7 @@ const Venta = sequelize.define('Venta', {
   },
   origen: {
     type: DataTypes.STRING(20),
-    allowNull: false
-  },
-  idorigen: {
-    type: DataTypes.INTEGER,
-    allowNull: false
+    allowNull: true
   },
   fecha: {
     type: DataTypes.DATE,

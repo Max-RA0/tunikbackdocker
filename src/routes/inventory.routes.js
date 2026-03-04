@@ -9,58 +9,80 @@ const router = express.Router();
 // All routes require authentication
 router.use(verifyToken);
 
+// ========== LOOKUPS (MIN) ==========
+// KEYWORDS: LOOKUPS / MIN_FIELDS / FLOW_PERMISSION
+router.get('/proveedores', requirePermission('pedidos.create'), inventoryController.findAllProveedores);
+
 // ========== PRODUCTOS ==========
-// GET /api/productos
 router.get('/productos', requirePermission('productos.read'), inventoryController.findAllProductos);
 
-// POST /api/productos
-router.post('/productos', [
-  requirePermission('productos.create'),
-  body('nombreproductos').notEmpty().withMessage('Nombre del producto es requerido'),
-  body('precio').isDecimal().withMessage('Precio es requerido'),
-  body('cantidadexistente').isInt({ min: 0 }).withMessage('Cantidad existente es requerida'),
-  validate
-], inventoryController.createProducto);
+router.post(
+  '/productos',
+  [
+    requirePermission('productos.create'),
+    body('nombreproductos').notEmpty().withMessage('Nombre del producto es requerido'),
+    body('precio').isDecimal().withMessage('Precio es requerido'),
+    body('cantidadexistente').isInt({ min: 0 }).withMessage('Cantidad existente es requerida'),
+    validate,
+  ],
+  inventoryController.createProducto
+);
 
-// PUT /api/productos/:idproductos
 router.put('/productos/:idproductos', requirePermission('productos.update'), inventoryController.updateProducto);
-
-// DELETE /api/productos/:idproductos
 router.delete('/productos/:idproductos', requirePermission('productos.delete'), inventoryController.deleteProducto);
 
 // ========== PROVEEDORES ==========
-// GET /api/proveedores
 router.get('/proveedores', requirePermission('proveedores.read'), inventoryController.findAllProveedores);
 
-// POST /api/proveedores
-router.post('/proveedores', [
-  requirePermission('proveedores.create'),
-  body('nombreproveedor').notEmpty().withMessage('Nombre del proveedor es requerido'),
-  validate
-], inventoryController.createProveedor);
+router.post(
+  '/proveedores',
+  [
+    requirePermission('proveedores.create'),
+    body('nombreproveedor').notEmpty().withMessage('Nombre del proveedor es requerido'),
+    validate,
+  ],
+  inventoryController.createProveedor
+);
 
-// PUT /api/proveedores/:idproveedor
 router.put('/proveedores/:idproveedor', requirePermission('proveedores.update'), inventoryController.updateProveedor);
-
-// DELETE /api/proveedores/:idproveedor
 router.delete('/proveedores/:idproveedor', requirePermission('proveedores.delete'), inventoryController.deleteProveedor);
 
 // ========== PEDIDOS ==========
-// GET /api/pedidos
 router.get('/pedidos', requirePermission('pedidos.read'), inventoryController.findAllPedidos);
+router.get('/pedidos/:idpedidos', requirePermission('pedidos.read'), inventoryController.findPedidoById);
 
-// POST /api/pedidos
-router.post('/pedidos', [
-  requirePermission('pedidos.create'),
-  body('idproveedor').isInt().withMessage('Proveedor es requerido'),
-  body('fechaPedido').notEmpty().withMessage('Fecha del pedido es requerida'),
-  validate
-], inventoryController.createPedido);
+router.post(
+  '/pedidos',
+  [
+    requirePermission('pedidos.create'),
+    body('idproveedor').isInt().withMessage('Proveedor es requerido'),
+    body('fechaPedido').notEmpty().withMessage('Fecha del pedido es requerida'),
+    validate,
+  ],
+  inventoryController.createPedido
+);
 
-// PUT /api/pedidos/:idpedidos
 router.put('/pedidos/:idpedidos', requirePermission('pedidos.update'), inventoryController.updatePedido);
-
-// DELETE /api/pedidos/:idpedidos
 router.delete('/pedidos/:idpedidos', requirePermission('pedidos.delete'), inventoryController.deletePedido);
+
+// ========== DETALLES DE PEDIDO ==========
+router.get('/detallepedidos', requirePermission('pedidos.read'), inventoryController.findAllDetallesPedido);
+router.get('/detallepedidos/pedido/:idpedidos', requirePermission('pedidos.read'), inventoryController.findDetallesByPedido);
+
+router.post(
+  '/detallepedidos',
+  [
+    requirePermission('pedidos.create'),
+    body('idpedido').isInt().withMessage('ID de pedido es requerido'),
+    body('idproveedor').isInt().withMessage('ID de proveedor es requerido'),
+    body('idproducto').isInt().withMessage('ID de producto es requerido'),
+    body('cantidad').isInt({ min: 1 }).withMessage('Cantidad debe ser mayor a 0'),
+    validate,
+  ],
+  inventoryController.createDetallePedido
+);
+
+router.put('/detallepedidos/:idpedido/:idproducto', requirePermission('pedidos.update'), inventoryController.updateDetallePedido);
+router.delete('/detallepedidos/:idpedido/:idproducto', requirePermission('pedidos.delete'), inventoryController.deleteDetallePedido);
 
 module.exports = router;

@@ -42,6 +42,3 @@ const RolePermiso = sequelize.define('RolePermiso', {
 });
 
 module.exports = RolePermiso;
-
-
-// TABLA CONECTION DONDE SE UNE ROLES,MODULO(PRIVILEGIOS),ACCION(PERMISOS)

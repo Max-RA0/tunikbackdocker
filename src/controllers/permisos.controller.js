@@ -1,149 +1,147 @@
-// controllers/permisos.controller.js
-// KEYWORDS: PERMISOS_CONTROLLER / MODULOS / ACCIONES / ROLEPERMISO / REPLACE_ALL / SAFE
-
-const response = require("../utils/response.util");
-const { Role, RolePermiso, Modulo, Accion } = require("../models");
+const { Role, RolePermiso, Modulo, Accion } = require('../models');
+const response = require('../utils/response.util');
 
 class PermisosController {
-  // GET /api/permisos/modulos
+  // Listar todos los módulos disponibles
   async findAllModulos(req, res, next) {
     try {
-      const rows = await Modulo.findAll({
-        order: [["idmodulo", "ASC"]],
+      const modulos = await Modulo.findAll({
+        where: { activo: 1 },
+        order: [['nombre', 'ASC']]
       });
-      return response.success(res, rows, "Módulos obtenidos");
+      return response.success(res, modulos);
     } catch (error) {
       next(error);
     }
   }
 
-  // GET /api/permisos/acciones
+  // Listar todas las acciones disponibles
   async findAllAcciones(req, res, next) {
     try {
-      const rows = await Accion.findAll({
-        order: [["idaccion", "ASC"]],
+      const acciones = await Accion.findAll({
+        order: [['idaccion', 'ASC']]
       });
-      return response.success(res, rows, "Acciones obtenidas");
+      return response.success(res, acciones);
     } catch (error) {
       next(error);
     }
   }
 
-  // GET /api/permisos/roles/:idroles
+  // Obtener permisos de un rol (qué módulos y acciones tiene permitidos)
   async getPermisosByRole(req, res, next) {
     try {
-      const idroles = Number(req.params.idroles);
+      const { idroles } = req.params;
+      const role = await Role.findByPk(idroles);
 
-      if (!Number.isFinite(idroles)) {
-        return response.badRequest(res, "idroles inválido");
+      if (!role) {
+        return response.notFound(res, 'Rol no encontrado');
       }
 
-      const role = await Role.findByPk(idroles);
-      if (!role) return response.notFound(res, "Rol no encontrado");
-
-      const rows = await RolePermiso.findAll({
-        where: { idroles },
+      const permisos = await RolePermiso.findAll({
+        where: { idroles, permitido: 1 },
         include: [
-          { model: Modulo, as: "modulo", attributes: ["idmodulo", "nombre", "codigo"] },
-          { model: Accion, as: "accion", attributes: ["idaccion", "nombre", "codigo"] },
-        ],
-        order: [
-          [{ model: Modulo, as: "modulo" }, "idmodulo", "ASC"],
-          [{ model: Accion, as: "accion" }, "idaccion", "ASC"],
-        ],
+          { model: Modulo, as: 'modulo', attributes: ['idmodulo', 'codigo', 'nombre'] },
+          { model: Accion, as: 'accion', attributes: ['idaccion', 'codigo', 'nombre'] }
+        ]
       });
 
-      return response.success(res, rows, "Permisos del rol obtenidos");
+      return response.success(res, permisos);
     } catch (error) {
       next(error);
     }
   }
 
-  // PUT /api/permisos/roles/:idroles  body: { permisos: [{idmodulo,idaccion,permitido}] }
+  // Asignar permisos a un rol
+  // Body: { permisos: [{ idmodulo, idaccion, permitido }] }
   async assignPermisosToRole(req, res, next) {
     try {
-      const idroles = Number(req.params.idroles);
-      const permisos = Array.isArray(req.body?.permisos) ? req.body.permisos : [];
-
-      if (!Number.isFinite(idroles)) {
-        return response.badRequest(res, "idroles inválido");
-      }
+      const { idroles } = req.params;
+      const { permisos } = req.body;
 
       const role = await Role.findByPk(idroles);
-      if (!role) return response.notFound(res, "Rol no encontrado");
+      if (!role) {
+        return response.notFound(res, 'Rol no encontrado');
+      }
 
-      // KEYWORDS: REPLACE_ALL
+      // Eliminar permisos existentes del rol
       await RolePermiso.destroy({ where: { idroles } });
 
-      // crear solo los permitidos
-      const createRows = permisos
-        .filter((p) => Number(p?.permitido) === 1)
-        .map((p) => ({
-          idroles,
-          idmodulo: Number(p.idmodulo),
-          idaccion: Number(p.idaccion),
-          permitido: 1,
-        }))
-        .filter(
-          (p) =>
-            Number.isFinite(p.idmodulo) &&
-            Number.isFinite(p.idaccion) &&
-            p.idmodulo > 0 &&
-            p.idaccion > 0
-        );
-
-      if (createRows.length > 0) {
-        await RolePermiso.bulkCreate(createRows);
+      // Crear nuevos permisos
+      if (permisos && Array.isArray(permisos)) {
+        for (const p of permisos) {
+          await RolePermiso.create({
+            idroles,
+            idmodulo: p.idmodulo,
+            idaccion: p.idaccion,
+            permitido: p.permitido !== undefined ? p.permitido : 1
+          });
+        }
       }
 
-      return response.success(res, { ok: true, count: createRows.length }, "Permisos asignados");
+      // Obtener permisos actualizados
+      const permisosActualizados = await RolePermiso.findAll({
+        where: { idroles },
+        include: [
+          { model: Modulo, as: 'modulo', attributes: ['idmodulo', 'codigo', 'nombre'] },
+          { model: Accion, as: 'accion', attributes: ['idaccion', 'codigo', 'nombre'] }
+        ]
+      });
+
+      return response.success(res, permisosActualizados, 'Permisos asignados exitosamente');
     } catch (error) {
       next(error);
     }
   }
 
-  // POST /api/permisos/roles/:idroles  body: { idmodulo, idaccion }
+  // Agregar un permiso específico a un rol
   async addPermisoToRole(req, res, next) {
     try {
-      const idroles = Number(req.params.idroles);
-      const idmodulo = Number(req.body?.idmodulo);
-      const idaccion = Number(req.body?.idaccion);
-
-      if (!Number.isFinite(idroles) || !Number.isFinite(idmodulo) || !Number.isFinite(idaccion)) {
-        return response.badRequest(res, "Datos inválidos");
-      }
+      const { idroles } = req.params;
+      const { idmodulo, idaccion } = req.body;
 
       const role = await Role.findByPk(idroles);
-      if (!role) return response.notFound(res, "Rol no encontrado");
-
-      const exists = await RolePermiso.findOne({ where: { idroles, idmodulo, idaccion } });
-      if (exists) {
-        // si existe lo marcamos permitido = 1
-        await exists.update({ permitido: 1 });
-        return response.success(res, exists, "Permiso actualizado");
+      if (!role) {
+        return response.notFound(res, 'Rol no encontrado');
       }
 
-      const created = await RolePermiso.create({ idroles, idmodulo, idaccion, permitido: 1 });
-      return response.created(res, created, "Permiso agregado");
+      // Verificar si ya existe
+      const existing = await RolePermiso.findOne({
+        where: { idroles, idmodulo, idaccion }
+      });
+
+      if (existing) {
+        await existing.update({ permitido: 1 });
+        return response.success(res, existing, 'Permiso actualizado');
+      }
+
+      const nuevoPermiso = await RolePermiso.create({
+        idroles,
+        idmodulo,
+        idaccion,
+        permitido: 1
+      });
+
+      return response.created(res, nuevoPermiso, 'Permiso agregado exitosamente');
     } catch (error) {
       next(error);
     }
   }
 
-  // DELETE /api/permisos/roles/:idroles/:idmodulo/:idaccion
+  // Eliminar un permiso específico de un rol
   async removePermisoFromRole(req, res, next) {
     try {
-      const idroles = Number(req.params.idroles);
-      const idmodulo = Number(req.params.idmodulo);
-      const idaccion = Number(req.params.idaccion);
+      const { idroles, idmodulo, idaccion } = req.params;
 
-      if (!Number.isFinite(idroles) || !Number.isFinite(idmodulo) || !Number.isFinite(idaccion)) {
-        return response.badRequest(res, "Parámetros inválidos");
+      const permiso = await RolePermiso.findOne({
+        where: { idroles, idmodulo, idaccion }
+      });
+
+      if (!permiso) {
+        return response.notFound(res, 'Permiso no encontrado');
       }
 
-      const deleted = await RolePermiso.destroy({ where: { idroles, idmodulo, idaccion } });
-
-      return response.success(res, { ok: true, deleted }, "Permiso eliminado");
+      await permiso.destroy();
+      return response.success(res, null, 'Permiso eliminado exitosamente');
     } catch (error) {
       next(error);
     }
