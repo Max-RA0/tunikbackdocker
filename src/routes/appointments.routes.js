@@ -19,58 +19,77 @@ router.get("/agendacitas", appointmentsController.findAll);
 // GET /api/agendacitas/:idagendacitas
 router.get("/agendacitas/:idagendacitas", appointmentsController.findById);
 
-// POST /api/agendacitas
-// Soporta 2 modos:
-// 1) Cabecera clásica (legacy): { placa, fecha, estado? }
-// 2) Multi-vehículos (nuevo): { fecha, estado?, detalles:[{placa,idservicios,precio_unitario,cantidad?,descripcionvehiculo?}, ...] }
-//
-// NOTA: placa en cabecera ya NO es requerida si mandas "detalles".
 router.post(
   "/agendacitas",
   [
-    // KEYWORDS: FECHA_REQUIRED
     body("fecha").notEmpty().withMessage("Fecha es requerida"),
-
-    // KEYWORDS: MODE_SWITCH (detalles optional)
     body("detalles")
-      .optional()
       .isArray({ min: 1 })
       .withMessage("detalles debe ser un arreglo con mínimo 1 item"),
-
-    // KEYWORDS: DETALLES_VALIDATION
     body("detalles.*.placa")
-      .optional()
       .notEmpty()
-      .withMessage("Cada detalle debe tener placa"),
+      .withMessage("Cada detalle debe tener placa")
+      .isString()
+      .withMessage("placa debe ser texto"),
     body("detalles.*.idservicios")
-      .optional()
       .isInt({ min: 1 })
       .withMessage("Cada detalle debe tener idservicios válido"),
     body("detalles.*.precio_unitario")
-      .optional()
       .isDecimal()
       .withMessage("Cada detalle debe tener precio_unitario válido"),
     body("detalles.*.cantidad")
       .optional()
       .isInt({ min: 1 })
       .withMessage("cantidad debe ser >= 1"),
-
-    // KEYWORDS: LEGACY_FALLBACK (si NO hay detalles, exige placa)
-    body("placa")
-      .custom((value, { req }) => {
-        const hasDetalles = Array.isArray(req.body?.detalles) && req.body.detalles.length > 0;
-        if (hasDetalles) return true; // modo nuevo: placa en cabecera no requerida
-        if (typeof value === "string" && value.trim().length > 0) return true; // modo legacy
-        throw new Error("Placa es requerida");
-      }),
-
+    body("detalles").custom((_, { req }) => {
+      const bad = req.body.detalles.find((d) => String(d?.descripcionvehiculo || "").trim());
+      if (bad) throw new Error("descripcionvehiculo no está permitido en agenda");
+      return true;
+    }),
     validate,
   ],
   appointmentsController.create
 );
-
 // PUT /api/agendacitas/:idagendacitas
-router.put("/agendacitas/:idagendacitas", appointmentsController.update);
+router.put(
+  "/agendacitas/:idagendacitas",
+  [
+    body("fecha").optional().notEmpty().withMessage("Fecha es requerida"),
+
+    body("detalles")
+      .optional()
+      .isArray({ min: 1 })
+      .withMessage("detalles debe ser un arreglo con mínimo 1 item"),
+
+    body("detalles.*.placa")
+      .notEmpty()
+      .withMessage("Cada detalle debe tener placa")
+      .isString()
+      .withMessage("placa debe ser texto"),
+
+    body("detalles.*.idservicios")
+      .isInt({ min: 1 })
+      .withMessage("Cada detalle debe tener idservicios válido"),
+
+    body("detalles.*.precio_unitario")
+      .isDecimal()
+      .withMessage("Cada detalle debe tener precio_unitario válido"),
+    body("detalles.*.cantidad")
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage("cantidad debe ser >= 1"),
+    body("detalles").custom((_, { req }) => {
+      const hasDetalles = Array.isArray(req.body?.detalles) && req.body.detalles.length > 0;
+      if (!hasDetalles) return true;
+      const bad = req.body.detalles.find((d) => String(d?.descripcionvehiculo || "").trim());
+      if (bad) throw new Error("descripcionvehiculo no está permitido en agenda");
+      return true;
+    }),
+
+    validate,
+  ],
+  appointmentsController.update
+);
 
 // DELETE /api/agendacitas/:idagendacitas
 router.delete("/agendacitas/:idagendacitas", appointmentsController.delete);
@@ -97,9 +116,11 @@ router.post(
     body("precio_unitario").isDecimal().withMessage("Precio unitario es requerido"),
     // KEYWORDS: OPTIONAL_FIELDS
     body("cantidad").optional().isInt({ min: 1 }).withMessage("cantidad debe ser >= 1"),
-    body("placa").optional().isString(),
-    body("descripcionvehiculo").optional().isString(),
-    validate,
+    body("placa").notEmpty().withMessage("placa es requerida").isString().withMessage("placa debe ser texto"),
+    body("descripcionvehiculo").custom((v) => {
+      if (String(v || "").trim()) throw new Error("descripcionvehiculo no está permitido en agenda");
+      return true;
+    }),
   ],
   appointmentsController.createDetalle
 );

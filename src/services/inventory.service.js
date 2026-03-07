@@ -80,7 +80,9 @@ class InventoryService {
 
     return await Pedido.findAll({
       where,
-      include: [{ model: Proveedor, as: 'proveedor' }],
+      include: [{ model: Proveedor, as: 'proveedor' },
+        { model: DetallePedidoProducto, as: 'detalles', include: [{ model: Producto, as: 'producto' }] },
+      ],
       order: [['fechaPedido', 'DESC']],
     });
   }

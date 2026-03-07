@@ -137,6 +137,8 @@ class AppointmentsService {
   }
 
   async update(idagendacitas, data) {
+    const { placa, fecha, estado, detalles } = data;
+
     const cita = await AgendaCita.findByPk(idagendacitas);
     if (!cita) {
       const error = new Error("Cita no encontrada");
@@ -144,8 +146,39 @@ class AppointmentsService {
       throw error;
     }
 
-    await cita.update(data);
-    return await this.findById(idagendacitas);
+    const hasDetalles = Array.isArray(detalles) && detalles.length > 0;
+
+    const transaction = await sequelize.transaction();
+    try {
+      await cita.update(
+        {
+          placa: hasDetalles ? null : (placa ?? cita.placa),
+          fecha: fecha ?? cita.fecha,
+          estado: estado ?? cita.estado,
+        },
+        { transaction }
+      );
+      if (hasDetalles) {
+        await DetalleAgendaCita.destroy({ where: { idagendacitas }, transaction });
+
+        const detallesData = detalles.map((d) => ({
+          idagendacitas,
+          idservicios: Number(d.idservicios),
+          cantidad: Number(d.cantidad || 1),
+          precio_unitario: d.precio_unitario,
+          placa: d.placa || null,
+          descripcionvehiculo: d.descripcionvehiculo || null,
+        }));
+
+        await DetalleAgendaCita.bulkCreate(detallesData, { transaction });
+      }
+
+      await transaction.commit();
+      return await this.findById(idagendacitas);
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
   }
 
   async delete(idagendacitas) {
@@ -155,10 +188,20 @@ class AppointmentsService {
       error.statusCode = 404;
       throw error;
     }
-    await cita.destroy();
-    return { message: "Cita eliminada exitosamente" };
-  }
 
+    const transaction = await sequelize.transaction();
+    try {
+      // ✅ borra detalles primero (evita huérfanos si no hay cascade)
+      await DetalleAgendaCita.destroy({ where: { idagendacitas }, transaction });
+      await cita.destroy({ transaction });
+
+      await transaction.commit();
+      return { message: "Cita eliminada exitosamente" };
+    } catch (error) {
+      await transaction.rollback();
+      throw error;
+    }
+  }
   // Detalles de agenda
   async findAllDetalles() {
     return await DetalleAgendaCita.findAll({
