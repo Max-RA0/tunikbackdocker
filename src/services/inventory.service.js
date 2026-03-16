@@ -71,6 +71,31 @@ class InventoryService {
     return { message: 'Proveedor eliminado exitosamente' };
   }
 
+  // KEYWORDS: PEDIDOS / CODCOMPRAS / AUTOGENERATE / UNIQUE_CODE
+  async generarCodCompra() {
+    const ultimoPedido = await Pedido.findOne({
+      where: {
+        codcompras: {
+          [Op.like]: 'COM-%',
+        },
+      },
+      order: [['idpedidos', 'DESC']],
+    });
+
+    let siguiente = 200;
+
+    if (ultimoPedido?.codcompras) {
+      const partes = String(ultimoPedido.codcompras).split('-');
+      const numeroActual = Number(partes[1]);
+
+      if (!Number.isNaN(numeroActual)) {
+        siguiente = numeroActual + 1;
+      }
+    }
+
+    return `COM-${String(siguiente).padStart(6, '0')}`;
+  }
+
   // PEDIDOS
   async findAllPedidos(query = {}) {
     const { estado, idproveedor } = query;
@@ -80,8 +105,13 @@ class InventoryService {
 
     return await Pedido.findAll({
       where,
-      include: [{ model: Proveedor, as: 'proveedor' },
-        { model: DetallePedidoProducto, as: 'detalles', include: [{ model: Producto, as: 'producto' }] },
+      include: [
+        { model: Proveedor, as: 'proveedor' },
+        {
+          model: DetallePedidoProducto,
+          as: 'detalles',
+          include: [{ model: Producto, as: 'producto' }],
+        },
       ],
       order: [['fechaPedido', 'DESC']],
     });
@@ -89,13 +119,22 @@ class InventoryService {
 
   async findPedidoById(idpedidos) {
     const pedido = await Pedido.findByPk(idpedidos, {
-      include: [{ model: Proveedor, as: 'proveedor' }],
+      include: [
+        { model: Proveedor, as: 'proveedor' },
+        {
+          model: DetallePedidoProducto,
+          as: 'detalles',
+          include: [{ model: Producto, as: 'producto' }],
+        },
+      ],
     });
+
     if (!pedido) {
       const error = new Error('Pedido no encontrado');
       error.statusCode = 404;
       throw error;
     }
+
     return pedido;
   }
 
@@ -114,8 +153,25 @@ class InventoryService {
       throw error;
     }
 
+    let codcompras = data?.codcompras ? String(data.codcompras).trim() : '';
+
+    if (codcompras) {
+      const existeCodigo = await Pedido.findOne({
+        where: { codcompras },
+      });
+
+      if (existeCodigo) {
+        const error = new Error('El código de compra ya existe');
+        error.statusCode = 400;
+        throw error;
+      }
+    } else {
+      codcompras = await this.generarCodCompra();
+    }
+
     const pedido = await Pedido.create({
       ...data,
+      codcompras,
       idproveedor,
       estado: data.estado || 'Pendiente',
     });
@@ -139,6 +195,26 @@ class InventoryService {
         error.statusCode = 400;
         throw error;
       }
+      data.idproveedor = idproveedor;
+    }
+
+    if (data?.codcompras !== undefined) {
+      const codcompras = String(data.codcompras).trim();
+
+      const existeCodigo = await Pedido.findOne({
+        where: {
+          codcompras,
+          idpedidos: { [Op.ne]: Number(idpedidos) },
+        },
+      });
+
+      if (existeCodigo) {
+        const error = new Error('El código de compra ya existe');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      data.codcompras = codcompras;
     }
 
     await pedido.update(data);
@@ -205,12 +281,26 @@ class InventoryService {
       throw error;
     }
 
+    const precioUnitario = Number(detalleData?.preciounitario);
+
+    if (Number.isNaN(precioUnitario) || precioUnitario <= 0) {
+      const error = new Error('El precio unitario debe ser mayor a 0');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await producto.update({ precio: precioUnitario });
+
+    const total = Number((cantidad * precioUnitario).toFixed(2));
+
     return await DetallePedidoProducto.create({
       ...detalleData,
       idpedido,
       idproveedor,
       idproducto,
       cantidad,
+      preciounitario: precioUnitario,
+      total,
     });
   }
 
@@ -229,6 +319,47 @@ class InventoryService {
       const error = new Error('Cantidad debe ser mayor a 0');
       error.statusCode = 400;
       throw error;
+    }
+
+    const producto = await Producto.findByPk(Number(idproducto));
+    if (!producto) {
+      const error = new Error('Producto no encontrado');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // KEYWORDS: SYNC_PRECIO_PRODUCTO_FROM_PEDIDO
+    if (data?.preciounitario !== undefined && data?.preciounitario !== null) {
+      const nuevoPrecio = Number(data.preciounitario);
+
+      if (Number.isNaN(nuevoPrecio) || nuevoPrecio <= 0) {
+        const error = new Error('El precio unitario debe ser mayor a 0');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      data.preciounitario = nuevoPrecio;
+
+      // actualiza precio global del producto
+      await producto.update({ precio: nuevoPrecio });
+    }
+
+    // KEYWORDS: RECALCULAR_TOTAL
+    const cantidadFinal =
+      data?.cantidad !== undefined ? Number(data.cantidad) : Number(detalle.cantidad);
+
+    const precioFinal =
+      data?.preciounitario !== undefined
+        ? Number(data.preciounitario)
+        : Number(detalle.preciounitario);
+
+    if (
+      !Number.isNaN(cantidadFinal) &&
+      !Number.isNaN(precioFinal) &&
+      cantidadFinal > 0 &&
+      precioFinal > 0
+    ) {
+      data.total = Number((cantidadFinal * precioFinal).toFixed(2));
     }
 
     await detalle.update(data);
@@ -251,4 +382,4 @@ class InventoryService {
   }
 }
 
-module.exports = new InventoryService();      
+module.exports = new InventoryService();
